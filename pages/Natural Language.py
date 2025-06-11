@@ -1,47 +1,67 @@
 import streamlit as st
 import requests
-# tf-idf and nltk
+from bertopic import BERTopic
+from sklearn.feature_extraction.text import TfidfVectorizer
 import nltk
-from sklearn.decomposition import LatentDirichletAllocation
-from sklearn.feature_extraction.text import CountVectorizer
-from bs4 import BeautifulSoup
+# download punkt-tab if not already
+
+if 'punkt_tab' not in nltk.data.path:
+    nltk.download('punkt')
+    nltk.download('punkt_tab', download_dir=nltk.data.path[0])
 
 def load_data():
-    nltk.download('stopwords')
 
-    thucydides = "https://gutenberg.org/cache/epub/7142/pg7142-images.html#link2H_4_0001"
-    dickens = "https://www.gutenberg.org/files/98/98-h/98-h.htm"
+    thucydides = "https://gutenberg.org/cache/epub/7142/pg7142.txt"
+    doyle = "https://gutenberg.org/cache/epub/1661/pg1661.txt"
+    dickens = "https://gutenberg.org/cache/epub/98/pg98.txt"
+    melville = "https://gutenberg.org/cache/epub/2701/pg2701.txt"
 
     if st.session_state.get('thucydides') is None:
         st.session_state['thucydides'] = requests.get(thucydides).text
     if st.session_state.get('dickens') is None:
         st.session_state['dickens'] = requests.get(dickens).text
+    if st.session_state.get('melville') is None:
+        st.session_state['melville'] = requests.get(melville).text
+    if st.session_state.get('doyle') is None:
+        st.session_state['doyle'] = requests.get(doyle).text
 
-    thucydides_soup = BeautifulSoup(st.session_state['thucydides'], 'html.parser')
-    dickens_soup = BeautifulSoup(st.session_state['dickens'], 'html.parser')
-    thucydides_chapters = thucydides_soup.find_all('p')
-    dickens_chapters = dickens_soup.find_all('div', class_='chapter')
-    thucydides_text = ' '.join([chapter.get_text() for chapter in thucydides_chapters])
-    dickens_text = ' '.join([chapter.get_text() for chapter in dickens_chapters])
+    thucydides_text = st.session_state.get('thucydides', None)
+    dickens_text = st.session_state.get('dickens', None)
+    melville_text = st.session_state.get('melville', None)
+    doyle_text = st.session_state.get('doyle', None)
 
     # all chapters are in div class="chapter", inside p tags, so get them out using bs4
-    return thucydides_text, dickens_text
+    return thucydides_text, dickens_text, melville_text, doyle_text
 
 def main():
     multilabel_exist = False # Hide the buttons before data load
 
-    thucydides, dickens = load_data()
     st.title("Natual Language Processing")
-    st.write("I have always been fascinated with processing human languages with computers.")
-    
+    st.write("I have always been fascinated with processing human languages with computers. My newest favorite tool is topic modeling using Latent Dirichlet Allocation (LDA). This page is a simple example of how to use LDA to find topics in text data. It uses the scikit-learn library to perform the LDA analysis.")
+    st.write("Here are a few texts that I downloaded for analysis from project Gutenberg...")
+    st.write("(If it takes a while to load, please be patient. The texts are quite large and the LDA analysis can take some time.)")
+    st.markdown("---")
+
+    thucydides, dickens, melville, doyle = load_data()
+
     # show a snippet of either text
     columns = st.columns(2)
     with columns[0]:
         st.subheader("Thucydides: The History of the Peloponnesian War")
-        st.write(thucydides[:500])
+        st.write(thucydides[5000:5500])
     with columns[1]:
         st.subheader("Charles Dickens: A Tale of Two Cities")
-        st.write(dickens[:500])  
+        st.write(dickens[5000:5500])  
+
+    second_columns = st.columns(2)
+    with second_columns[0]:
+        st.subheader("Herman Melville: Moby Dick")
+        if melville:
+            st.write(melville[10000:10500])
+    with second_columns[1]:
+        st.subheader("Arthur Conan Doyle: The Adventures of Sherlock Holmes")
+        if doyle:
+            st.write(doyle[5000:5500])
     
     # insert separator
     st.markdown("---")
@@ -50,37 +70,38 @@ def main():
     st.write("Let's create a quick LDA analysis of the two texts to see if we can find similar topics between them. This example was taken from the scikit-learn documentation.")
     st.write("https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.LatentDirichletAllocation.html")
     
-    doc_select = st.selectbox("Select a text to analyze", ["Thucydides", "Dickens"], index=0, key="text_select")
+    doc_select = st.selectbox(
+        "Select a text to analyze", 
+        ["Select One", "Thucydides", "Dickens", "Melville", "Doyle"], 
+        index=0, 
+        key="text_select"
+    )
+
+    doc_dict = {
+        "Thucydides": thucydides,
+        "Dickens": dickens,
+        "Melville": melville,
+        "Doyle": doyle
+    }
 
     if st.button("Generate LDA Topics"):
-        # Tokenize into documents — use paragraphs (or small chunks)
-        thucydides_docs = thucydides.split("\n\n")
-        dickens_docs = dickens.split("\n\n")
+        # show loading 
+        with st.spinner("Generating topics... This may take a while..."):
+            # Check if the selected text is valid
+            if doc_select not in doc_dict:
+                st.error("Please select a valid text to analyze.")
+                return
 
         # Combine for shared vocabulary
-        if doc_select == "Thucydides":
-            all_docs = thucydides_docs 
+        if doc_select == "Select One":
+            st.error("Please select a text to analyze.")
+            return
         else:
-            all_docs = dickens_docs
+            doc = [doc_dict[doc_select]]
+            topic_model = BERTopic()
+            topics, probs = topic_model.fit_transform(doc)
 
-        # Vectorize
-        vectorizer = CountVectorizer(stop_words='english', max_features=1000)
-        X = vectorizer.fit_transform(all_docs)
-
-        # LDA
-        lda = LatentDirichletAllocation(n_components=10, random_state=42)
-        lda.fit(X)
-
-        feature_names = vectorizer.get_feature_names_out()
-        topics = []
-        for topic_idx, topic in enumerate(lda.components_):
-            top_features_ind = topic.argsort()[:-11:-1]
-            top_features = [feature_names[i] for i in top_features_ind]
-            topics.append(f"Topic {topic_idx}: " + ", ".join(top_features))
-
-        for topic in topics:
-            st.write(topic)
-
+    st.write(topics, probs)
 
 if __name__ == "__main__":
     main()

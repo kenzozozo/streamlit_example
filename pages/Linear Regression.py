@@ -2,19 +2,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from sklearn import linear_model
+from Home import load_car_data
 
-def load_data():
-    if st.session_state.get('data') is None:
-        st.session_state['data'] = (
-            pd
-            .read_csv('https://raw.githubusercontent.com/im-dpaul/EDA-Cars-Data/refs/heads/main/cars_data.csv')
-            .query('`highway MPG` < 100 and `city mpg` < 100')
-            .dropna(how='any')
-        )
         
 def lr_example():
     
-    load_data()
+    load_car_data()
 
     df = st.session_state['data']
 
@@ -57,7 +50,8 @@ def lr_example():
     st.plotly_chart(fig)
  
     coef, y_intercept = lr.coef_[0], lr.intercept_
-    st.write(f"Linear Regression Equation: y = {coef:.2f} * x + {y_intercept:.2f}")
-
+    st.write(f"Resulting Equation: y = {coef:.2f} * x + {y_intercept:.2f}")
+    st.write(f"This equation tells us that for every unit increase in {x_col}, the {y_col} increases by {coef:.2f} units, with an intercept of {y_intercept:.2f}.")
+    st.write("This kind of quick analysis on various dimensions allows quick iteration over ideas, and helps to find the useful features. It is also a good way to find outliers that may affect the model performance. As can be seen in the plot, some of these dimensions have clear outliers that may affect the linear model performance.")
 if __name__ == "__main__":
     lr_example()
