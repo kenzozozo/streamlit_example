@@ -24,4 +24,5 @@ def main():
     st.write(st.session_state['data'].head())
 
 if __name__ == "__main__":
-    main()
+    with st.spinner("Loading data... This might take about 2 minutes..."):
+        main()
