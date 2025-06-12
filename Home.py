@@ -12,10 +12,12 @@ def load_car_data():
 
 def main():
     st.title("Streamlit for Fast Prototyping and Iterative Development")
-    st.write("I often use Streamlit to explore datasets and iterate over ideas quitkly. It is a very handy tool in the process of data analysis and machine learning model development.")
+    st.write("I often use Streamlit to explore datasets and iterate over ML ideas quickly. It is a very handy tool in the process of data analysis and machine learning model development, and showing stakeholders the current status of development in an interactive way.")
     st.write("Note: Some of these pages may take a little while to load, as they are fetching data from the web or performing computations. Please be patient.")
     st.write("You can navigate to the other pages using the sidebar on the left.")
-    st.write("I am downloading data from sites on the web, so it may take a little while to load. Here's an example car dtaset I prepared.")
+    st.write("I am downloading data from sites on the web, so it may take a little while to load. Here's an example car dataset I downloaded from github.")
+    url = "https://raw.githubusercontent.com/im-dpaul/EDA-Cars-Data/refs/heads/main/cars_data.csv"
+    st.markdown('[raw.githubusercontent.com/im-dpaul/EDA-Cars-Data](%s)' % url)
 
     load_car_data()
 
