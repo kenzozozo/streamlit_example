@@ -11,7 +11,10 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
-
+from functools import reduce
+import numpy as np
+import math
+import random
 
 import plotly.express as px
 import pandas as pd
@@ -75,21 +78,21 @@ classes = [
     "Vehicle Style"
     ]
 
-from functools import reduce
-import numpy as np
 
-unique_categories = []
+st.session_state['unique_categories'] = [] # prep receiver for categories
 
 if st.session_state.get('transform_complete') is False:
     car_data['Market Category'] = car_data['Market Category'].apply(lambda x: x.split(','))
     st.session_state['transform_complete'] = True
 
-if unique_categories == []:
-    unique_categories = list(reduce(lambda x, y: x.union(y), car_data['Market Category'].apply(set), set()))
+if st.session_state['unique_categories'] == []: # this will turn words into letters if run again, so check if exists first
+    st.session_state['unique_categories'] = (
+        list(reduce(lambda x, y: x.union(y), car_data['Market Category'].apply(set), set()))
+    )
 
 unique_fuel_types = car_data['Engine Fuel Type'].unique().tolist()
 
-for category in unique_categories:
+for category in st.session_state['unique_categories']:
     car_data[category] = car_data['Market Category'].apply(lambda x: 1 if category in x else 0)
 
 for fuel_type in unique_fuel_types:
@@ -97,7 +100,7 @@ for fuel_type in unique_fuel_types:
 
 predictors = predictors + unique_fuel_types
 
-labels = unique_categories
+labels = st.session_state['unique_categories']
 
 X = car_data[predictors].values
 y = car_data[labels].values
@@ -141,7 +144,7 @@ with three_cols[2]:
         )
     )
 
-selected_category = st.selectbox("Market Category", unique_categories, index=0, key='market_category')
+selected_category = st.selectbox("Market Category", st.session_state['unique_categories'], index=0, key='market_category')
 
 # Create a mask for the selected category
 category_mask = car_data[selected_category] == 1
@@ -156,7 +159,7 @@ pca_mask = (
 filtered_reduced_data = reduced_data[pca_mask]
 filtered_category_mask = category_mask[pca_mask]
 
-st.write(len(filtered_reduced_data), len(reduced_data), len(filtered_category_mask))
+# st.write(len(filtered_reduced_data), len(reduced_data), len(filtered_category_mask))
 
 # Assign colors: red for selected category, blue for others
 colors = np.where(filtered_category_mask, 'red', 'gray')
@@ -187,82 +190,78 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 st.write("Length of training set:", len(X_train))
 st.write("Length of testing set:", len(X_test))
 
-st.write("**** Code execution happening here ****")
+with st.spinner("Training Decision Tree Classifier..."):
+
+    rf_clf = RandomForestClassifier(n_estimators=100, random_state=59)
+    multilabel_random_forest = MultiOutputClassifier(rf_clf)
+    multilabel_random_forest.fit(X_train, y_train)
+
+    rf_predictions = multilabel_random_forest.predict(X_test)
+
+    accuracies = {}
+    for i, label in enumerate(labels):
+        accuracies[label] = accuracy_score(y_test[:, i], rf_predictions[:, i])
+
+    # Turn into a DataFrame
+    accuracy_df = pd.DataFrame.from_dict(accuracies, orient='index', columns=['Accuracy'])
+    accuracy_df = accuracy_df.sort_values(by='Accuracy', ascending=False)
+    accuracy_df['Accuracy (%)'] = (accuracy_df['Accuracy'] * 100).round(2)
+
+    st.write("## Decision Tree Classifier results")
+
+    st.markdown("### Per-Label Accuracy (%)")
+    st.write("The accuracy of the model for each label is shown below. In the results I observed, all labels exceeded 95% accuracy. The ones with the lowest accuracy were 'Performance' and 'Hatchback' at 95% and 97% accuracy respectively.")
+    st.dataframe(accuracy_df[['Accuracy (%)']])
+
+    cols = 2  # 3 per row
+    rows = math.ceil(len(labels) / cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
+    axes = axes.flatten()
+
+    mcm = multilabel_confusion_matrix(y_test, rf_predictions)
+
+    for i, label in enumerate(labels):
+        sns.heatmap(mcm[i], annot=True, fmt='d', cmap='Greens', ax=axes[i],
+                    xticklabels=[f'Not {label}', label],
+                    yticklabels=[f'Not {label}', label])
+        axes[i].set_title(label)
+
+    # Hide extra plots
+    for j in range(i + 1, len(axes)):
+        axes[j].axis("off")
+
+    plt.tight_layout()
+    st.pyplot(fig)
+
+    st.markdown("### Practical Example")
+    st.write("This may be difficult to imagine how it is useful, so below, we take one random example and show how the predictor labels it against the actual labels. By clicing the button, you can select another single sample and have the model predict its labels.")
 
 
-rf_clf = RandomForestClassifier(n_estimators=100, random_state=59)
-multilabel_random_forest = MultiOutputClassifier(rf_clf)
-multilabel_random_forest.fit(X_train, y_train)
+    if st.button("Predict 1 result"):
+        random_row = car_data.sample(1)
+        st.write(random_row[predictors])
 
-rf_predictions = multilabel_random_forest.predict(X_test)
+        st.write("Market Category for this car: ", random_row['Market Category'].values[0])
 
-accuracies = {}
-for i, label in enumerate(labels):
-    accuracies[label] = accuracy_score(y_test[:, i], rf_predictions[:, i])
+        random_predictors = random_row[predictors].values
+        random_labels = random_row[labels].values
 
-# Turn into a DataFrame
-accuracy_df = pd.DataFrame.from_dict(accuracies, orient='index', columns=['Accuracy'])
-accuracy_df = accuracy_df.sort_values(by='Accuracy', ascending=False)
-accuracy_df['Accuracy (%)'] = (accuracy_df['Accuracy'] * 100).round(2)
+        #pca it up
+        random_reduced = pca.transform(random_predictors)
+        # predict based on predictors
+        random_prediction = multilabel_random_forest.predict(random_predictors)
+        # compare to random_labels
+        random_prediction = pd.DataFrame(random_prediction, index=random_row.index)
+        random_prediction.columns = labels
+        st.write("Existing labels for this car:")
+        st.write(pd.DataFrame(random_labels, columns=labels))
+        st.write("Predicted Labels for this car:")
+        st.write(random_prediction) 
+        if (random_prediction == random_labels).all(axis=1).any():
+            st.write("Prediction matches actual labels! :)")
+            st.session_state['successful_predictions'] += 1
+        else:
+            st.session_state['unsuccessful_predictions'] += 1
+            st.write("Prediction did not match actual labels. :(")
 
-st.write("## Decision Tree Classifier results")
-
-st.markdown("### Per-Label Accuracy (%)")
-st.write("The accuracy of the model for each label is shown below. In the results I observed, all labels exceeded 95% accuracy. The ones with the lowest accuracy were 'Performance' and 'Hatchback' at 95% and 97% accuracy respectively.")
-st.dataframe(accuracy_df[['Accuracy (%)']])
-
-import math
-
-cols = 2  # 3 per row
-rows = math.ceil(len(labels) / cols)
-fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows))
-axes = axes.flatten()
-
-mcm = multilabel_confusion_matrix(y_test, rf_predictions)
-
-for i, label in enumerate(labels):
-    sns.heatmap(mcm[i], annot=True, fmt='d', cmap='Greens', ax=axes[i],
-                xticklabels=[f'Not {label}', label],
-                yticklabels=[f'Not {label}', label])
-    axes[i].set_title(label)
-
-# Hide extra plots
-for j in range(i + 1, len(axes)):
-    axes[j].axis("off")
-
-plt.tight_layout()
-st.pyplot(fig)
-
-st.markdown("### Practical Example")
-st.write("This may be difficult to imagine how it is useful, so below, we take one random example and show how the predictor labels it against the actual labels. By clicing the button, you can select another single sample and have the model predict its labels.")
-
-import random
-
-if st.button("Predict 1 result"):
-    random_row = car_data.sample(1)
-    st.write(random_row[predictors])
-
-    st.write("Market Category for this car: ", random_row['Market Category'].values[0])
-
-    random_predictors = random_row[predictors].values
-    random_labels = random_row[labels].values
-
-    #pca it up
-    random_reduced = pca.transform(random_predictors)
-    # predict based on predictors
-    random_prediction = multilabel_random_forest.predict(random_predictors)
-    # compare to random_labels
-    random_prediction = pd.DataFrame(random_prediction, index=random_row.index)
-    random_prediction.columns = labels
-    st.write("Existing labels for this car:")
-    st.write(pd.DataFrame(random_labels, columns=labels))
-    st.write("Predicted Labels for this car:")
-    st.write(random_prediction) 
-    if (random_prediction == random_labels).all(axis=1).any():
-        st.write("Prediction matches actual labels! :)")
-        st.session_state['successful_predictions'] += 1
-    else:
-        st.session_state['unsuccessful_predictions'] += 1
-        st.write("Prediction did not match actual labels. :(")
-
-    st.write("Successful Predictions:", st.session_state['successful_predictions'])
+        st.write("Successful Predictions:", st.session_state['successful_predictions'])

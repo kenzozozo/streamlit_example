@@ -7,10 +7,13 @@ import textwrap
 import numpy as np
 import nltk
 
-if 'punkt_tab' not in nltk.data.path:
-    nltk.download('punkt')
-    nltk.download('punkt_tab')
-    nltk.download('rslp')
+# Ensure required NLTK resources are available, download if missing
+required_resources = ['punkt', 'stopwords']
+for resource in required_resources:
+    try:
+        nltk.data.find(f'tokenizers/{resource}' if resource == 'punkt' else f'corpora/{resource}')
+    except LookupError:
+        nltk.download(resource)
 
 def load_data():
 
@@ -20,26 +23,42 @@ def load_data():
     melville = "https://gutenberg.org/cache/epub/2701/pg2701.txt"
 
     def clean_text(text):
-        stemmer = nltk.stem.RSLPStemmer()
-        stopwords = nltk.corpus.stopwords.words('english')
-        tmp = text
-        tmp = tmp.lower()  # Convert to lowercase
-        tmp = stemmer.stem(tmp)  # Stem the text
-        tmp = ' '.join([word for word in text.split() if word not in stopwords])
-        return tmp
+        stopwords = set(nltk.corpus.stopwords.words('english'))
+        # Lowercase and split into words
+        words = text.lower().split()
+        return ' '.join(words)
 
     if st.session_state.get('thucydides') is None:
-        thu_text = requests.get(thucydides).text
+        try:
+            thu_text = requests.get(thucydides).text
+        except:
+            with open("data/thucydides.txt", "r", encoding='utf-8') as file:
+                thu_text = file.read()
         st.session_state['thucydides'] = clean_text(thu_text)
     if st.session_state.get('dickens') is None:
-        dickens_text = requests.get(dickens).text
+        try:
+            dickens_text = requests.get(dickens).text
+        except:
+            with open("data/dickens.txt", "r", encoding='utf-8') as file:
+                dickens_text = file.read()
         st.session_state['dickens'] = clean_text(dickens_text)
     if st.session_state.get('melville') is None:
-        melville_text = requests.get(melville).text
+        try:
+            melville_text = requests.get(melville).text
+        except:
+            with open("data/melville.txt", "r", encoding='utf-8') as file:
+                melville_text = file.read()
         st.session_state['melville'] = clean_text(melville_text)
     if st.session_state.get('doyle') is None:
-        doyle_text = requests.get(doyle).text
+        try:
+            doyle_text = requests.get(doyle).text
+        except:
+            with open("data/doyle.txt", "r", encoding='utf-8') as file:
+                doyle_text = file.read()
         st.session_state['doyle'] = clean_text(doyle_text)
+    if 'embedding_model' not in st.session_state:
+        # st.session_state['embedding_model'] = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        st.session_state['embedding_model'] = SentenceTransformer("sentence-transformers/gooaq")
 
 def main():
     topics = False # prepping vars so no error on initial load
@@ -49,12 +68,13 @@ def main():
     load_data()
 
     # Chunking function to accommodate bertopic < 5 docs long
-    def chunk_text(text, chunk_size=500):
-        return [
-            chunk.strip().replace("\n", " ") 
-            for chunk in textwrap.wrap(text, width=chunk_size) 
-            if len(chunk.strip()) > 50
+    def chunk_text(text, chunk_size=5):
+        sentences = nltk.sent_tokenize(text)
+        chunks = [
+            ' '.join(sentences[i:i + chunk_size])
+            for i in range(0, len(sentences), chunk_size)
         ]
+        return [chunk for chunk in chunks if len(chunk.split()) > 20]
 
     doc_dict = {
         "Thucydides": st.session_state['thucydides'],
@@ -76,14 +96,13 @@ def main():
                     all_chunks.extend(chunks)
                     chunk_sources.extend([name] * len(chunks))
 
-            # Encode embeddings
-            with st.spinnter("Encoding embeddings... This might take a while..."):
-                embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-                embeddings = embedding_model.encode(all_chunks, show_progress_bar=True)
+            # Encode text and create embeddings
+            with st.spinner("Encoding text... Creating embeddings... This might take a while..."):
+                embeddings = st.session_state['embedding_model'].encode(all_chunks)
 
             # Fit BERTopic
-            topic_model = BERTopic(umap_model=None)
-            with st.spinner("Fitting BERTopic model... This might take a while..."):
+            topic_model = BERTopic(umap_model=None, nr_topics=5, calculate_probabilities=True, verbose=True)
+            with st.spinner("Fitting & transforming with BERTopic model... This might take a while..."):
                 topics, probs = topic_model.fit_transform(all_chunks, embeddings)
 
             # Store everything
@@ -93,6 +112,12 @@ def main():
             st.session_state["bertopic_topics"] = topics
             st.session_state["bertopic_probs"] = probs
 
+    # DEBUG #
+    st.write(f"Debug BERTopic model loaded with {len(st.session_state['bertopic_chunks'])} chunks {len(set(st.session_state['bertopic_topics']))} topics.")
+    st.write(f"Debug {len(st.session_state['bertopic_sources'])} sources: {set(st.session_state['bertopic_sources'])}")
+    st.write(f"Debug {len(st.session_state['bertopic_topics'])} topics: {set(st.session_state['bertopic_topics'])}")
+
+    # DEBUG #
 
     st.title("Natual Language Processing")
     st.write("I have always been fascinated with processing human languages with computers. My newest favorite tool is topic modeling using Latent Dirichlet Allocation (LDA). This page is a simple example of how to use LDA to find topics in text data. It uses the scikit-learn library to perform the LDA analysis.")
@@ -127,47 +152,12 @@ def main():
 
     titles = list(doc_dict.keys())
 
-    # Streamlit dropdown
-    doc_select = st.selectbox("Select a book", ["Select One"] + titles)
-
     # Button and logic
     if st.button("Generate Topics"):
         with st.spinner("Generating topics..."):
-            if doc_select == "Select One":
-                st.error("Please select a valid text.")
-                        
-            else:
-                st.session_state['bertopic_model'] = st.session_state.get('bertopic_model', None)
-                if st.session_state['bertopic_model'] is None:
-                    st.error("BERTopic model is not ready. Please wait for it to load.")
-                else:
-                    # Get the selected text
-                    selected_text = doc_dict[doc_select]
-                    
-                    # Chunk the text
-                    chunks = chunk_text(selected_text)
-                    
-                    # Encode embeddings
-                    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-                    embeddings = embedding_model.encode(chunks, show_progress_bar=True)
-                    
-                    # Transform with BERTopic
-                    topics, probs = st.session_state['bertopic_model'].transform(chunks, embeddings)
-                    
-                    # Display results
-                    st.subheader(f"Topics for {doc_select}")
-                    st.write(f"Found {len(set(topics))} topics in the selected text.")
-                    
-                    # Show topics and probabilities
-                    for topic in set(topics):
-                        if topic != -1:
-                            topic_words = st.session_state['bertopic_model'].get_topic(topic)
-                            topic_prob = np.mean(probs[topics == topic])
-                            st.write(f"**Topic {topic}:** {', '.join([word for word, _ in topic_words])} (Probability: {topic_prob:.2f})")                
-
-                    # # Show topic distribution
-                    # topic_counts = np.bincount(topics[topics != -1])
-
+            # show all topics
+            st.write(st.session_state['bertopic_model'].get_topic_info())
+                
 if __name__ == "__main__":
     with st.spinner("Loading data and creating bertopic model... This might take a little while..."):
         load_data()

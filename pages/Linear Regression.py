@@ -11,8 +11,6 @@ def lr_example():
 
     df = st.session_state['data']
 
-    
-
     st.title("Linear Regression Example")
 
     st.write("This is a simple example of linear regression using Streamlit. using streamlit to explore the data can be useful to quickly understand the relationships between variables, and also to find any outliers that may affect the further analysis.")
@@ -53,5 +51,7 @@ def lr_example():
     st.write(f"Resulting Equation: y = {coef:.2f} * x + {y_intercept:.2f}")
     st.write(f"This equation tells us that for every unit increase in {x_col}, the {y_col} increases by {coef:.2f} units, with an intercept of {y_intercept:.2f}.")
     st.write("This kind of quick analysis on various dimensions allows quick iteration over ideas, and helps to find the useful features. It is also a good way to find outliers that may affect the model performance. As can be seen in the plot, some of these dimensions have clear outliers that may affect the linear model performance.")
+
+
 if __name__ == "__main__":
     lr_example()
